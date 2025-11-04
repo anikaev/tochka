@@ -1,127 +1,94 @@
 import sys
-from collections import deque, defaultdict
+from collections import deque
 
-def is_gateway(node: str) -> bool:
-    return node.isupper()
+def isolate_virus(corridors):
+    graph = {}
+    gateways = set()
+    for corridor in corridors:
+        u, v = corridor.split('-')
+        graph.setdefault(u, []).append(v)
+        graph.setdefault(v, []).append(u)
+        if u.isupper():
+            gateways.add(u)
+        if v.isupper():
+            gateways.add(v)
+    virus_node = 'a'
+    result = []
 
-def bfs_from(start, graph):
-    INF = 10**9
-    dist = {u: INF for u in graph}
-    if start not in graph:
+    def bfs_distances(start):
+        dist = {start: 0}
+        queue = deque([start])
+        while queue:
+            node = queue.popleft()
+            for neighbor in graph.get(node, []):
+                if neighbor not in dist:
+                    dist[neighbor] = dist[node] + 1
+                    queue.append(neighbor)
         return dist
-    dist[start] = 0
-    q = deque([start])
-    while q:
-        u = q.popleft()
-        for v in graph[u]:
-            if dist[v] == 10**9:
-                dist[v] = dist[u] + 1
-                q.append(v)
-    return dist
 
-def pick_target_gateway(virus, graph, gateways):
-    dist = bfs_from(virus, graph)
-    best = None
-    best_d = 10**9
-    for g in gateways:
-        if dist.get(g, 10**9) < best_d:
-            best_d = dist[g]
-            best = g
-        elif dist.get(g, 10**9) == best_d and best is not None and g < best:
-            best = g
-    return best, dist
+    while True:
+        neighbors = graph.get(virus_node, [])
+        gateway_neighbors = [node for node in neighbors if node in gateways]
+        if gateway_neighbors:
+            gateway_neighbors.sort()
+            g = gateway_neighbors[0]
+            graph[g].remove(virus_node)
+            graph[virus_node].remove(g)
+            result.append(f"{g}-{virus_node}")
+        else:
+            dist = bfs_distances(virus_node)
+            reachable_gateways = [(dist[g], g) for g in gateways if g in dist]
+            if not reachable_gateways:
+                break
+            min_dist = min(d for d, g in reachable_gateways)
+            candidates = [g for d, g in reachable_gateways if d == min_dist]
+            candidates.sort()
+            target_gateway = candidates[0]
+            gateway_links = [node for node in graph[target_gateway]]
+            gateway_links.sort()
+            if not gateway_links:
+                break
+            node_to_cut = gateway_links[0]
+            graph[target_gateway].remove(node_to_cut)
+            graph[node_to_cut].remove(target_gateway)
+            result.append(f"{target_gateway}-{node_to_cut}")
 
-def virus_next_step(virus, graph, target):
-    if target is None:
-        return virus  # путей нет — вирус не двигается
-    INF = 10**9
-    dist_from_target = {u: INF for u in graph}
-    q = deque([target])
-    dist_from_target[target] = 0
-    while q:
-        u = q.popleft()
-        for v in graph[u]:
-            if dist_from_target[v] == INF:
-                dist_from_target[v] = dist_from_target[u] + 1
-                q.append(v)
+        dist_after = bfs_distances(virus_node)
+        reachable_gateways = [(dist_after[g], g) for g in gateways if g in dist_after]
+        if not reachable_gateways:
+            break
+        min_dist = min(d for d, g in reachable_gateways)
+        candidates = [g for d, g in reachable_gateways if d == min_dist]
+        candidates.sort()
+        new_target = candidates[0]
 
-    dv = dist_from_target.get(virus, INF)
-    if dv == INF:
-        return virus
-    candidates = [n for n in graph[virus] if dist_from_target.get(n, INF) == dv - 1]
-    if not candidates:
-        return virus
-    return min(candidates)
+        dist_from_target = bfs_distances(new_target)
+        next_steps = []
+        for nei in sorted(graph.get(virus_node, [])):
+            if nei in dist_from_target and virus_node in dist_from_target:
+                if dist_from_target[nei] == dist_from_target[virus_node] - 1:
+                    next_steps.append(nei)
+        if next_steps:
+            virus_node = next_steps[0]
+        else:
+            break
+    return result
+
 
 def main():
-    lines = [line.strip() for line in sys.stdin if line.strip()]
-    graph = defaultdict(set)
-
-    for line in lines:
-        if '-' not in line:
+    corridors = []
+    for line in sys.stdin:
+        s = line.strip()
+        if not s:
             continue
-        u, v = line.split('-', 1)
-        graph[u].add(v)
-        graph[v].add(u)
+        if '-' in s:
+            u, sep, v = s.partition('-')
+            if u and v:
+                corridors.append(f"{u.strip()}-{v.strip()}")
 
-    if 'a' not in graph:
-        graph['a'] = set()
+    for cut in isolate_virus(corridors):
+        print(cut)
 
-    gateways = {u for u in graph if is_gateway(u)}
-    virus = 'a'
-
-    cuts = []
-
-    def reachable_gateway():
-        g, dist = pick_target_gateway(virus, graph, gateways)
-        return g is not None and dist.get(g, 10**9) < 10**9
-
-    steps_guard = 0
-    while reachable_gateway():
-        steps_guard += 1
-        if steps_guard > 1000:
-            break
-        adjacent_gate_edges = sorted(
-            [f"{g}-{virus}" if is_gateway(g) else f"{virus}-{g}"
-             for g in graph[virus] if is_gateway(g)]
-        )
-        if adjacent_gate_edges:
-            cut = adjacent_gate_edges[0]
-            G, x = cut.split('-')
-        else:
-            target, dist_from_virus = pick_target_gateway(virus, graph, gateways)
-            if target is None or dist_from_virus.get(target, 10**9) == 10**9:
-                break
-            dT = dist_from_virus[target]
-            candidates = []
-            for x in graph[target]:
-                if dist_from_virus.get(x, 10**9) == dT - 1:
-                    candidates.append(f"{target}-{x}")
-            if not candidates:
-                all_gw_edges = []
-                for G in gateways:
-                    for x in graph[G]:
-                        if not is_gateway(x):
-                            all_gw_edges.append(f"{G}-{x}")
-                cut = min(all_gw_edges)
-                G, x = cut.split('-')
-            else:
-                cut = min(candidates)
-                G, x = cut.split('-')
-
-        if x in graph[G]:
-            graph[G].remove(x)
-        if G in graph[x]:
-            graph[x].remove(G)
-        cuts.append(f"{G}-{x}")
-        target_after, _ = pick_target_gateway(virus, graph, gateways)
-        if target_after is None:
-            break
-        new_virus = virus_next_step(virus, graph, target_after)
-        virus = new_virus
-
-    for c in cuts:
-        print(c)
 
 if __name__ == "__main__":
     main()
