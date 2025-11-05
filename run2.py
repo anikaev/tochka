@@ -1,92 +1,100 @@
 import sys
-from collections import deque
+from collections import deque, defaultdict
+from typing import List, Tuple
 
-def isolate_virus(corridors):
-    graph = {}
-    gateways = set()
-    for corridor in corridors:
-        u, v = corridor.split('-')
-        graph.setdefault(u, []).append(v)
-        graph.setdefault(v, []).append(u)
-        if u.isupper():
-            gateways.add(u)
-        if v.isupper():
-            gateways.add(v)
-    virus_node = 'a'
-    result = []
+def solve(edges: List[Tuple[str, str]]) -> List[str]:
 
-    def bfs_distances(start):
+    def is_gateway(node: str) -> bool:
+        return node.isupper()
+
+    graph: dict[str, set[str]] = defaultdict(set)
+    gates: set[str] = set()
+
+    for a, b in edges:
+        graph[a].add(b)
+        graph[b].add(a)
+        if is_gateway(a):
+            gates.add(a)
+        if is_gateway(b):
+            gates.add(b)
+
+    for n in list(graph.keys()):
+        graph[n]
+
+    virus = "a"
+
+    def bfs(start: str, allow=None) -> dict[str, int]:
         dist = {start: 0}
-        queue = deque([start])
-        while queue:
-            node = queue.popleft()
-            for neighbor in graph.get(node, []):
-                if neighbor not in dist:
-                    dist[neighbor] = dist[node] + 1
-                    queue.append(neighbor)
+        q = deque([start])
+        while q:
+            u = q.popleft()
+            for v in graph[u]:
+                if allow is not None and not allow(v):
+                    continue
+                if v not in dist:
+                    dist[v] = dist[u] + 1
+                    q.append(v)
         return dist
 
+    def frontier_and_component(cur: str) -> tuple[list[tuple[str, str]], set[str]]:
+        comp = set(bfs(cur, allow=str.islower).keys()) if cur in graph else set()
+        front = set()
+        for u in comp:
+            for nbr in graph[u]:
+                if is_gateway(nbr):
+                    front.add((nbr, u))  # (G, u)
+        return sorted(front), comp
+
+    result: List[str] = []
+
     while True:
-        neighbors = graph.get(virus_node, [])
-        gateway_neighbors = [node for node in neighbors if node in gateways]
-        if gateway_neighbors:
-            gateway_neighbors.sort()
-            g = gateway_neighbors[0]
-            graph[g].remove(virus_node)
-            graph[virus_node].remove(g)
-            result.append(f"{g}-{virus_node}")
-        else:
-            dist = bfs_distances(virus_node)
-            reachable_gateways = [(dist[g], g) for g in gateways if g in dist]
-            if not reachable_gateways:
-                break
-            min_dist = min(d for d, g in reachable_gateways)
-            candidates = [g for d, g in reachable_gateways if d == min_dist]
-            candidates.sort()
-            target_gateway = candidates[0]
-            gateway_links = [node for node in graph[target_gateway]]
-            gateway_links.sort()
-            if not gateway_links:
-                break
-            node_to_cut = gateway_links[0]
-            graph[target_gateway].remove(node_to_cut)
-            graph[node_to_cut].remove(target_gateway)
-            result.append(f"{target_gateway}-{node_to_cut}")
-
-        dist_after = bfs_distances(virus_node)
-        reachable_gateways = [(dist_after[g], g) for g in gateways if g in dist_after]
-        if not reachable_gateways:
+        front, comp = frontier_and_component(virus)
+        if not front:
             break
-        min_dist = min(d for d, g in reachable_gateways)
-        candidates = [g for d, g in reachable_gateways if d == min_dist]
-        candidates.sort()
-        new_target = candidates[0]
+        candidates = [e for e in front if e[1] == virus] or front
+        G, u = min(candidates)
 
-        dist_from_target = bfs_distances(new_target)
-        next_steps = []
-        for nei in sorted(graph.get(virus_node, [])):
-            if nei in dist_from_target and virus_node in dist_from_target:
-                if dist_from_target[nei] == dist_from_target[virus_node] - 1:
-                    next_steps.append(nei)
+        if G in graph[u]:
+            graph[u].remove(G)
+        if u in graph[G]:
+            graph[G].remove(u)
+        result.append(f"{G}-{u}")
+
+        front_after, _ = frontier_and_component(virus)
+        if not front_after:
+            break
+        dist_from_v = bfs(virus)
+        reachable_gates = [g for g in gates if g in dist_from_v]
+        if not reachable_gates:
+            break
+
+        dmin = min(dist_from_v[g] for g in reachable_gates)
+        candidates_gates = [g for g in reachable_gates if dist_from_v[g] == dmin]
+        target_gate = min(candidates_gates)
+        dist_to_gate = bfs(target_gate)
+        next_steps = [
+            n for n in graph[virus]
+            if n.islower() and dist_to_gate.get(n, float("inf")) == dist_to_gate.get(virus, float("inf")) - 1
+        ]
         if next_steps:
-            virus_node = next_steps[0]
+            virus = min(next_steps)
         else:
             break
+
     return result
 
 
 def main():
-    corridors = []
+    edges: List[Tuple[str, str]] = []
     for line in sys.stdin:
-        s = line.strip()
-        if not s:
+        line = line.strip()
+        if not line:
             continue
-        if '-' in s:
-            u, sep, v = s.partition('-')
-            if u and v:
-                corridors.append(f"{u.strip()}-{v.strip()}")
+        node1, sep, node2 = line.partition('-')
+        if sep:
+            edges.append((node1, node2))
 
-    for cut in isolate_virus(corridors):
+    for cut in solve(edges):
         print(cut)
 
 
